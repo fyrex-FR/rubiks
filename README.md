@@ -21,14 +21,19 @@ Un site pour apprendre à Camille à résoudre le Rubik's Cube **avec des histoi
 | 7 | La grande finale | Placer les coins jaunes (« ping-pong ») puis les tourner (cube retourné + ascenseur) |
 
 ## Mon cube (photos)
-Page « Mon cube » : 6 photos (une par face) → le site lit les couleurs (`js/photo.js`), on corrige au doigt si besoin,
+Page « Mon cube » : la caméra s'ouvre en direct avec un carré-guide ; Camille montre les 6 faces **dans l'ordre et le sens
+qu'elle veut**. Le centre de chaque photo dit quelle face c'est, et `CubeLogic.arrangeFaces` retrouve le sens de chaque
+photo (la seule combinaison où toutes les pièces existent). Sans caméra (ex. sur claude.ai), on prend des photos et on place
+la grille. Le site lit les couleurs (`js/photo.js`) ; si une case est mal lue, on la corrige au doigt,
 puis `js/solver.js` calcule la solution **avec les gestes des entraînements** (pâquerette, plongeons, ascenseurs…)
 et le coach guide Camille geste par geste sur **son** cube. Rien ne quitte la tablette.
 
 Le cube photographié est ensuite **suivi geste par geste** (photos + liste des gestes faits depuis, gardés sur la tablette) :
-- Le dernier écran « À toi de jouer » de chaque entraînement montre **son** cube, tenu comme dans ses mains.
-  Elle fait chaque geste sur le vrai cube et appuie sur le même bouton ; le site vérifie le but de l'étape.
-- 💡 *Aide du coach* : le prochain geste raconté, calculé sur son cube (`Solver.hint`).
+- Le dernier écran « À toi de jouer » de chaque entraînement montre **son** cube, avec le dessin « Tiens ton cube »
+  (quel capitaine en haut, lequel devant).
+- Un seul gros bouton, **▶ Geste suivant** : le coach montre un geste (calculé sur son cube, `Solver.hint`), elle le fait
+  sur le vrai cube. 🔁 *Revoir le geste*, ↩️ *Oups, je me suis trompée*.
+- 💪 *Je le fais toute seule* : elle fait l'étape sans l'appli, puis montre son cube à la caméra ; le coach vérifie.
 - Cube pas encore prêt pour l'étape : le coach l'aide d'abord à finir l'étape d'avant.
 - Étape déjà faite : « Mélange juste ce qu'il faut » (`Solver.practice`) ramène le cube au début de l'étape.
 - Si le vrai cube ne ressemble plus à l'écran : « 📸 Mon vrai cube est différent » → nouvelles photos.

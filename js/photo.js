@@ -124,7 +124,42 @@
     return { grids, confidence };
   }
 
-  const api = { sample, classify, rgbToLab, hungarian };
+  /* ---------- 6 photos dans n'importe quel ordre et n'importe quel sens ----------
+     samplesList = [3x3 [r,g,b], ...] (6 photos). On devine la couleur de chaque centre (une de chaque),
+     on classe les 54 cases, puis arrange() (CubeLogic.arrangeFaces) retrouve quelle face et quel sens.
+     accept(grids) peut refuser une solution (ex : cube impossible à résoudre).
+     -> { ok: true, grids, raw, confidence } ou { ok: false, raw, confidence } */
+  const REF = { W: [235, 235, 228], Y: [245, 210, 40], R: [195, 30, 40], O: [250, 120, 25], B: [25, 85, 205], G: [25, 160, 75] };
+  function centerColors(samplesList) {
+    const cost = samplesList.map((s) => COLORS.map((c) => dist(rgbToLab(s[1][1]), rgbToLab(REF[c]))));
+    return hungarian(cost).map((j) => COLORS[j]);
+  }
+  // Les confusions classiques d'un centre : rouge/orange et blanc/jaune
+  const SWAPS = [[], [['R', 'O']], [['W', 'Y']], [['R', 'O'], ['W', 'Y']]];
+  function readShots(samplesList, arrange, accept) {
+    const base = centerColors(samplesList);
+    let first = null;
+    for (const sw of SWAPS) {
+      const centers = {};
+      const samples = {};
+      samplesList.forEach((smp, i) => {
+        let c = base[i];
+        for (const [a, b] of sw) { if (c === a) c = b; else if (c === b) c = a; }
+        centers['s' + i] = c;
+        samples['s' + i] = smp;
+      });
+      const cl = classify(samples, centers);
+      const raw = samplesList.map((_, i) => cl.grids['s' + i]);
+      const conf = samplesList.map((_, i) => cl.confidence['s' + i]);
+      if (!first) first = { raw, confidence: conf };
+      const r = arrange(raw);
+      const options = r ? r.all.filter((g) => !accept || accept(g)) : [];
+      if (options.length) return { ok: true, grids: options[0], options, raw, confidence: conf };
+    }
+    return { ok: false, ...first };
+  }
+
+  const api = { sample, classify, rgbToLab, hungarian, readShots, dist };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.Photo = api;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -1107,14 +1107,12 @@
 
   // Ce que dit le coach pendant ces exercices (phrases fixes : elles peuvent être enregistrées)
   const MINE_SAY = {
-    ready: (goal) => `Voici ton cube, exactement comme dans tes mains. Ton but : ${goal}. Fais chaque geste sur ton vrai cube, et appuie sur le même bouton ici. Si tu es bloquée, appuie sur l’ampoule : le coach te montre.`,
-    early: 'Ton cube n’est pas encore prêt pour cet exercice : il manque une étape d’avant. Pas de souci : appuie sur l’ampoule, le coach te montre quoi faire, geste par geste. Fais pareil sur ton vrai cube.',
+    ready: (goal) => `Prends ton cube et tiens-le comme sur le dessin. Ton but : ${goal}. Appuie sur Geste suivant : le coach te montre un geste, et tu le fais sur ton vrai cube.`,
+    early: 'Ton cube n’est pas encore prêt pour cet exercice : il manque une étape d’avant. Pas de souci : appuie sur Geste suivant, le coach te montre quoi faire.',
     done: 'Ton cube a déjà passé cette étape ! Pour t’entraîner, le coach peut le mélanger juste ce qu’il faut. Regarde les gestes, et fais-les sur ton vrai cube.',
     mix: 'Le coach mélange juste ce qu’il faut. Fais les mêmes gestes sur ton vrai cube. Ensuite, ce sera à toi de jouer !',
     prepared: (goal) => `👍 Ton cube est prêt pour l’exercice ! À toi de jouer : ${goal}.`,
     reached: (goal) => `🎉 Bravo Camille ! Sur ton vrai cube : ${goal}. Appuie sur « J’ai réussi » pour gagner ta médaille !`,
-    hintDone: '✅ Fait ! Ton vrai cube ressemble à l’écran ? Appuie encore sur l’ampoule pour la suite.',
-    invite: 'Tu veux faire cet exercice avec ton cube, et le voir ici exactement comme dans tes mains ? Prends-le en photo !',
   };
 
   // Les gestes "racontés", réutilisés par le solveur de « Mon cube »

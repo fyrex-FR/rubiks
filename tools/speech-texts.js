@@ -61,6 +61,10 @@ function collect() {
     add(MS.reached(ch.mine.goal));
   }
   [MS.early, MS.done, MS.mix].forEach(add);
+  // Les photos
+  add('Super ! Tourne ton cube et montre une autre face.');
+  add('Ton cube est déjà rangé !');
+  add('Voilà ton cube ! Fais-le tourner avec ton doigt et compare avec ton vrai cube.');
   add('Si ton vrai cube ressemble à celui-ci, avec chaque face d’une seule couleur, appuie sur le bouton : tu as résolu ton cube !');
   add('Bravo Camille ! Tu as résolu <b>ton</b> Rubik’s Cube avec le coach ! 🏆');
 

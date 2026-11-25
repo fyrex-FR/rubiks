@@ -393,3 +393,47 @@ a.card:active { transform: translateY(3px); box-shadow: 0 2px 0 var(--press); }
 .mine-banner { border-color: var(--accent); box-shadow: 0 5px 0 var(--accent-deep); }
 .mine-banner .status { color: var(--accent); }
 .app-status p { margin: 8px 0 0; }
+
+/* ---------- Photos : caméra en direct ---------- */
+.cam {
+  position: relative; width: 100%; max-width: 640px; justify-self: center; aspect-ratio: 4 / 3; max-height: 62vh;
+  border-radius: 18px; overflow: hidden; background: #000;
+}
+.cam video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cam-guide { position: absolute; left: 50%; top: 50%; height: 74%; aspect-ratio: 1; transform: translate(-50%, -50%); }
+.cam-guide .grid9 { inset: 0; cursor: default; border-width: 4px; }
+.grid9.live i { transition: background 0.15s; }
+.grid9.live i::after { inset: 38%; border-style: solid; border-radius: 50%; }
+.cam-msg {
+  position: absolute; left: 12px; right: 12px; bottom: 12px; padding: 10px 14px; border-radius: 14px;
+  background: rgba(0, 0, 0, 0.75); color: #fff; font-weight: 800; text-align: center;
+}
+.mc-card > .cam-msg { position: static; }
+.cam-bar { display: flex; gap: 14px; align-items: center; justify-content: center; flex-wrap: wrap; }
+.cam-snap { font-size: 1.35rem; padding: 16px 30px; min-height: 64px; }
+.mc-faces { display: flex; gap: 8px; flex-wrap: wrap; }
+.mc-face {
+  width: 46px; height: 46px; border-radius: 9px; background: var(--surface-2); border: 3px dashed var(--line);
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; padding: 3px; place-items: center;
+}
+.mc-face b { grid-column: 1 / -1; grid-row: 1 / -1; color: var(--muted); }
+.mc-face.here { border-color: var(--accent); }
+.mc-face.done { background: #15171a; border: 3px solid #15171a; }
+.mc-face.done i { width: 100%; height: 100%; border-radius: 2px; }
+.net.raw { grid-template-columns: repeat(3, minmax(0, 1fr)); max-width: 480px; }
+
+/* ---------- Exercice guidé avec le vrai cube ---------- */
+.hold {
+  position: absolute; left: 12px; top: 12px; z-index: 3; display: grid; gap: 4px; padding: 8px 10px;
+  border-radius: 14px; background: rgba(10, 18, 36, 0.78); color: #fff; font-weight: 800; font-size: 0.9rem;
+}
+.hold-title { font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.8; }
+.hold-row { display: flex; align-items: center; gap: 8px; }
+.hold-row i {
+  width: 30px; height: 30px; border-radius: 7px; display: grid; place-items: center; font-style: normal;
+  font-size: 1.05rem; border: 2px solid #15171a;
+}
+.mine-next { font-size: 1.3rem; min-height: 64px; width: 100%; }
+.mine-tools { display: flex; gap: 10px; flex-wrap: wrap; }
+.cam-guide.flash .grid9 { animation: snapflash 0.5s; }
+@keyframes snapflash { 0% { background: rgba(255,255,255,0.85); } 100% { background: transparent; } }

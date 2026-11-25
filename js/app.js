@@ -122,6 +122,7 @@
       this.idx++;
       this.render();
       if (this.onStep) this.onStep(mv);
+      if (this.afterStep) this.afterStep(mv);
       return true;
     }
     async play(fromStart) {
@@ -167,7 +168,7 @@
     render() {
       const { controls, chips } = this.ui;
       const has = this.moves.length > 0;
-      controls.hidden = !has;
+      controls.hidden = !has || !!this.hideControls;
       chips.hidden = !has || !!this.scene.caption;
       if (!has) return;
       const done = this.idx >= this.moves.length;
@@ -205,6 +206,7 @@
   let current = null; // { view, player }
   function teardown() {
     hush();
+    if (current && current.stop) current.stop();
     if (current && current.view) current.view.destroy();
     current = null;
   }
@@ -384,6 +386,7 @@
         <div class="field"></div>
         <div class="caption" hidden></div>
         <div class="hint">👆 Glisse pour regarder</div>
+        <div class="hold" hidden></div>
         <div class="controls" hidden>
           <button class="btn btn-primary" data-act="play">▶ Regarder</button>
           <button class="btn" data-act="one">⏭ Un geste</button>
@@ -523,6 +526,8 @@
       cur = s;
       player.onStep = null;
       player.onEnd = null;
+      player.afterStep = null;
+      player.hideControls = false;
       bubble.querySelector('h2').innerHTML = s.title;
       bubble.querySelector('p').innerHTML = s.text;
       dots.innerHTML = ch.slides.length > 16
@@ -533,6 +538,10 @@
       if (ch.onSlide) ch.onSlide(i);
       extra.innerHTML = '';
       player.load(s.scene, first);
+      // Le dessin « Tiens ton cube » quand on travaille avec le vrai cube
+      const holdOn = !!(s.mine || ch.showHold);
+      page.querySelector('.hold').hidden = !holdOn;
+      if (holdOn) { player.afterStep = updateHold; updateHold(); }
       if (s.teams) extra.innerHTML = teamsHTML();
       if (s.html) extra.innerHTML = s.html;
       if (s.trainer) {
@@ -704,14 +713,6 @@
   const loadMy = () => { try { return JSON.parse(localStorage.getItem(MY_KEY)) || null; } catch (e) { return null; } };
   const saveMy = (v) => { try { localStorage.setItem(MY_KEY, JSON.stringify(v)); } catch (e) { /* pas grave */ } };
   const FACE_ORDER = ['F', 'R', 'B', 'L', 'U', 'D'];
-  const SHOTS = {
-    F: { top: 'Y', how: 'Tiens ton cube : Lion 🦁 (jaune) en haut, Grenouille 🐸 (vert) face à toi.' },
-    R: { top: 'Y', how: 'Tourne le cube d’un quart de tour vers la gauche : Tigre 🐯 (orange) face à toi. Le Lion reste en haut.' },
-    B: { top: 'Y', how: 'Encore un quart de tour vers la gauche : Dauphin 🐬 (bleu) face à toi.' },
-    L: { top: 'Y', how: 'Encore un quart de tour vers la gauche : Renard 🦊 (rouge) face à toi.' },
-    U: { top: 'B', how: 'Remets la Grenouille devant toi, puis penche le cube vers toi : le Lion 🦁 (jaune) te regarde, la Grenouille passe en dessous.' },
-    D: { top: 'G', how: 'Remets la Grenouille devant toi, puis penche le cube vers l’arrière : l’Ours polaire 🐻‍❄️ (blanc) te regarde, la Grenouille est en haut.' },
-  };
   const centerOf = (f) => L.START_COLORS[f];
   const teamOf = (c) => TEAMS[c];
 
@@ -759,12 +760,24 @@
   }
   const RANK = (p) => window.Solver.ORDER.indexOf(p);
   const UPV = [0, 1, 0], FRONTV = [0, 0, 1];
+  // Le dessin « Tiens ton cube » sur la scène : quel capitaine en haut, lequel devant
+  function updateHold() {
+    const el = document.querySelector('.stage .hold');
+    if (!el || el.hidden || !current || !current.view) return;
+    const c = current.view.cube;
+    const top = L.centerColor(c, UPV), front = L.centerColor(c, FRONTV);
+    el.innerHTML = `<span class="hold-title">Tiens ton cube</span>
+      <span class="hold-row"><i style="background:${HEX(top)}">${TEAMS[top].emoji}</i>en haut</span>
+      <span class="hold-row"><i style="background:${HEX(front)}">${TEAMS[front].emoji}</i>devant toi</span>`;
+  }
   function holdText(cube) {
     const top = TEAMS[L.centerColor(cube, UPV)], front = TEAMS[L.centerColor(cube, FRONTV)];
     return `${top.one} ${top.emoji} en haut, ${front.one} ${front.emoji} devant toi`;
   }
-  function goPhotos(ch) {
-    store.returnTo = ch.id; saveStore();
+  function goPhotos(ch, direct) {
+    store.returnTo = ch.id;
+    if (direct) store.autoShots = true;
+    saveStore();
     location.hash = 'moncube';
   }
 
@@ -775,16 +788,23 @@
     let p;
     try { p = window.Solver.progress(now.cube, now.moves.slice(-12)); } catch (e) { return { ...s, invite: true, lost: true }; }
     const goal = ch.mine.goal;
-    const hold = holdText(now.cube);
     const state = RANK(p) < RANK(ch.id) ? 'early' : RANK(p) > RANK(ch.id) ? 'done' : 'ready';
+    const checked = store.checkFor === ch.id; // elle vient de le faire seule et de montrer son cube
+    if (checked) { delete store.checkFor; saveStore(); }
     const scene = { setup: now.setup, view: ch.mine.view || 'normal' };
-    const base = { scene, finish: true, mine: { state, now, progress: p } };
+    const base = { scene, finish: true, mine: { state, now, progress: p, checked } };
+    if (state === 'done' && checked) {
+      return { ...base, mine: { ...base.mine, state: 'won' },
+        title: 'Bravo, c’est réussi ! 🎉',
+        text: MINE_SAY.reached(goal),
+        speech: MINE_SAY.reached(goal) };
+    }
     if (state === 'ready') {
       return { ...base,
-        title: 'À toi, avec <b>ton</b> cube !',
-        text: `Voici <b>ton</b> cube, exactement comme dans tes mains : <b>${hold}</b>.<br>
+        title: checked ? 'Presque ! Encore un effort 💪' : 'À toi, avec <b>ton</b> cube !',
+        text: `Prends ton cube et tiens-le <b>comme sur le dessin</b>, en haut du cube.<br>
                🎯 Ton but : <b>${goal}</b>.<br><br>
-               Fais chaque geste sur ton vrai cube, <b>et</b> appuie sur le même bouton ici. Bloquée ? Appuie sur 💡 : le coach te montre.`,
+               Appuie sur <b>▶ Geste suivant</b> : le coach montre un geste, tu le fais sur ton vrai cube. Et ainsi de suite !`,
         speech: MINE_SAY.ready(goal) };
     }
     if (state === 'early') {
@@ -792,14 +812,13 @@
       const num = (CHAPTERS.find((c) => c.id === p) || {}).num;
       return { ...base,
         title: 'Ton cube n’est pas encore prêt',
-        text: `Voici <b>ton</b> cube : <b>${hold}</b>.<br>
-               Avant cet exercice, il doit d’abord finir l’étape <b>${st.icon} ${st.title}</b> (entraînement ${num}).<br><br>
-               Pas de souci : appuie sur 💡, le coach te montre quoi faire, geste par geste. Fais pareil sur ton vrai cube.`,
+        text: `Avant cet exercice, ton cube doit d’abord finir l’étape <b>${st.icon} ${st.title}</b> (entraînement ${num}).<br><br>
+               Pas de souci : tiens ton cube <b>comme sur le dessin</b> et appuie sur <b>▶ Geste suivant</b>. Le coach te montre quoi faire.`,
         speech: MINE_SAY.early };
     }
     return { ...base,
       title: 'Déjà fait sur ton cube ! ✅',
-      text: `Ton cube (<b>${hold}</b>) a déjà passé cette étape.<br><br>
+      text: `Ton cube a déjà passé cette étape.<br><br>
              Pour t’entraîner, le coach peut le mélanger <b>juste ce qu’il faut</b> : regarde les gestes, et fais-les sur ton vrai cube.`,
       speech: MINE_SAY.done };
   }
@@ -807,165 +826,159 @@
   function bindInvite(root, ch) {
     const box = h(`<div class="mine-invite">
         <p>📸 Tu veux faire cet exercice avec <b>ton</b> cube, et le voir ici exactement comme dans tes mains ?</p>
-        <button class="btn btn-primary">📸 Mettre mon cube dans l’appli</button>
+        <button class="btn btn-primary">📸 Montrer mon cube au coach</button>
       </div>`);
-    box.querySelector('button').addEventListener('click', () => goPhotos(ch));
+    box.querySelector('button').addEventListener('click', () => goPhotos(ch, true));
     root.appendChild(box);
   }
 
+  /* L'exercice avec le vrai cube : le coach mène, un gros bouton, un geste à la fois */
   function bindMine(root, ch, info, view, player, redo) {
     const cfg = ch.mine;
     const goal = cfg.goal;
     const base = info.now.moves.slice();
     const moves = base.slice();
     const setupNow = () => [info.now.res.setup, ...moves].join(' ').trim();
-    const done = info.state === 'done';
+    const mixing = info.state === 'done';
+    const won = info.state === 'won';
     root.innerHTML = `
       <div class="mine-ex">
-        <div class="mine-goal"><span class="mg-icon">🎯</span><span>Ton but : <b>${goal}</b></span></div>
+        <div class="mine-goal ${won || mixing ? 'ok' : ''}"><span class="mg-icon">${won || mixing ? '✅' : '🎯'}</span><span>Ton but : <b>${goal}</b></span></div>
         <div class="mine-hint" hidden></div>
-        ${done ? `<div class="mc-actions"><button class="btn btn-primary" data-mine="mix">🌀 Mélange juste ce qu’il faut</button></div>` : ''}
-        <div class="mine-play" ${done ? 'hidden' : ''}>${trainerHTML(`
-          <button class="btn btn-small btn-primary" data-mine="hint">💡 Aide du coach</button>`, { moves: cfg.moves, macros: cfg.macros, noReset: true })}</div>
-        <div class="mine-foot"><button class="btn btn-small" data-mine="photos">📸 Mon vrai cube est différent</button></div>
+        <div class="note" hidden></div>
+        ${won ? '' : `<button class="btn btn-primary mine-next" data-mine="next">${mixing ? '🌀 Mélange juste ce qu’il faut' : '▶ Geste suivant'}</button>`}
+        <div class="mine-tools" ${won ? 'hidden' : ''}>
+          <button class="btn btn-small" data-mine="again" disabled>🔁 Revoir le geste</button>
+          <button class="btn btn-small" data-mine="undo" disabled>↩️ Oups, je me suis trompée</button>
+        </div>
+        <div class="mine-foot">
+          ${won || mixing ? '' : '<button class="btn btn-small" data-mine="alone">💪 Je le fais toute seule</button>'}
+          <button class="btn btn-small" data-mine="photos">📸 Mon vrai cube est différent</button>
+        </div>
       </div>`;
     const note = root.querySelector('.note');
     const goalEl = root.querySelector('.mine-goal');
     const hintBox = root.querySelector('.mine-hint');
-    hintBox.after(note); // visible même quand les boutons sont cachés
-    let queue = Promise.resolve();
-    let pending = 0;
-    let reached = false;
+    const next = root.querySelector('[data-mine=next]');
+    const again = root.querySelector('[data-mine=again]');
+    const undo = root.querySelector('[data-mine=undo]');
+    let reached = won || mixing;
     let wasEarly = info.state === 'early';
-    let hintOn = false;
-    if (done) { // déjà fait : le but est coché, sans refaire le « Bravo »
-      reached = true;
-      goalEl.classList.add('ok');
-      goalEl.querySelector('.mg-icon').textContent = '✅';
-    }
-
+    let step = null; // le conseil en cours : on avance dedans geste par geste
+    let busy = false;
     const say = (text) => { if (store.voice) speak(text); };
+    const tools = () => {
+      again.disabled = busy || moves.length <= base.length;
+      undo.disabled = busy || moves.length <= base.length;
+      if (next) next.disabled = busy;
+    };
     const record = (t) => { moves.push(t); setMyMoves(moves.slice()); };
+    player.onStep = (mv) => { record(mv.token); updateHold(); };
     const check = () => {
-      if (!root.isConnected) return;
+      if (!root.isConnected || mixing) return;
       let p;
-      // Pas de « recent » ici : le but n'est atteint que si le cube y est vraiment
       try { p = window.Solver.progress(view.cube); } catch (e) { return; }
       const ok = RANK(p) > RANK(ch.id);
       goalEl.classList.toggle('ok', ok);
       goalEl.querySelector('.mg-icon').textContent = ok ? '✅' : '🎯';
       if (ok && !reached) {
         reached = true;
+        step = null;
         hintBox.hidden = true;
+        if (next) next.hidden = true;
         note.hidden = false;
         note.innerHTML = MINE_SAY.reached(goal);
         say(note.innerHTML);
         if (ch.id === 'ch7') confetti();
-      } else if (!ok) {
+      } else if (!ok && reached) { // « Oups » après la victoire : on repart
         reached = false;
-        if (wasEarly && p === ch.id) {
-          wasEarly = false;
-          note.hidden = false;
-          note.innerHTML = MINE_SAY.prepared(goal);
-          say(note.innerHTML);
-        }
-      }
-    };
-    // Une file d'attente : les gestes se font un par un, puis on regarde si le but est atteint
-    const enqueue = (fn) => {
-      pending++;
-      queue = queue.then(fn).catch(() => {}).finally(() => { if (--pending === 0) check(); });
-    };
-    const endHint = () => {
-      if (!hintOn) return;
-      hintOn = false;
-      hintBox.hidden = true;
-      player.onStep = null;
-      player.onEnd = null;
-      player.load({ setup: setupNow(), view: cfg.view });
-    };
-    const run = (t) => enqueue(async () => {
-      if (!root.isConnected || player.playing) return;
-      endHint();
-      if (SAY[t]) say(SAY[t][1]);
-      const ok = await view.animateMove(t, { duration: SPEEDS.tap.duration });
-      if (ok) record(t);
-    });
-    root.querySelectorAll('[data-move]').forEach((b) => b.addEventListener('click', () => run(b.dataset.move)));
-    root.querySelectorAll('[data-macro]').forEach((b) => b.addEventListener('click', () => {
-      const m = cfg.macros[+b.dataset.macro];
-      if (m) L.parse(m.seq).forEach((mv) => run(mv.token));
-    }));
-    root.querySelector('[data-tool=undo]').addEventListener('click', () => enqueue(async () => {
-      if (player.playing) return;
-      if (moves.length <= base.length) {
+        note.hidden = true;
+        if (next) next.hidden = false;
+      } else if (!ok && wasEarly && p === ch.id) {
+        wasEarly = false;
         note.hidden = false;
-        note.innerHTML = '↩️ Tu es revenue au début de l’exercice.';
-        return;
+        note.innerHTML = MINE_SAY.prepared(goal);
+        say(note.innerHTML);
       }
-      endHint();
-      const back = L.invert(moves[moves.length - 1]);
-      if (SAY[back]) say(SAY[back][1]);
-      const ok = await view.animateMove(back, { duration: SPEEDS.tap.duration });
-      if (ok) { moves.pop(); setMyMoves(moves.slice()); }
-    }));
-
-    // Le coach montre la suite (ou mélange) sur la scène : ⏭ Un geste, ▶ Regarder
-    function coach(entries, box, onDone) {
-      hintOn = true;
-      hintBox.hidden = false;
-      hintBox.innerHTML = box;
-      hintBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      note.hidden = true;
-      player.load({ setup: setupNow(), moves: entries.moves, hl: entries.hl, view: cfg.view });
-      player.onStep = (mv) => record(mv.token);
-      player.onEnd = () => {
-        hintOn = false;
-        player.onStep = null;
-        player.onEnd = null;
-        player.load({ setup: setupNow(), view: cfg.view });
-        player.showCaption({ icon: '✅', text: 'Fait ! Ton vrai cube ressemble à l’écran ?' });
-        onDone();
-        check();
-      };
-    }
-    root.querySelector('[data-mine=hint]').addEventListener('click', () => enqueue(() => {
-      if (player.playing) return;
+    };
+    // Charge le prochain conseil du coach (ou le mélange) sur la scène
+    function loadStep() {
+      if (mixing) {
+        const m = window.Solver.practice(view.cube, ch.id);
+        if (!m) { note.hidden = false; note.innerHTML = 'Oups, le coach n’a pas trouvé de mélange. Mélange ton cube toi-même et montre-le au coach 📸.'; return null; }
+        hintBox.hidden = false;
+        hintBox.innerHTML = `<h3>🌀 Le coach mélange</h3><p>${MINE_SAY.mix}</p>`;
+        say(MINE_SAY.mix);
+        return { moves: m, hl: null, mix: true };
+      }
       let hh = null;
       try { hh = window.Solver.hint(view.cube, moves.slice(-12)); } catch (e) { hh = null; }
-      if (!hh) { note.hidden = false; note.innerHTML = '🏆 Ton cube est rangé : rien à faire !'; return; }
+      if (!hh) { note.hidden = false; note.innerHTML = '🏆 Ton cube est rangé : rien à faire !'; return null; }
       const earlier = RANK(hh.chapter) < RANK(ch.id);
-      const target = hh.target;
-      coach({ moves: hh.moves, hl: target == null ? null : (p) => p.id === target || p.type === 'center' }, `
-        <h3>💡 ${hh.title}</h3>
+      hintBox.hidden = false;
+      hintBox.innerHTML = `
+        <h3>${hh.title}</h3>
         ${earlier ? `<p class="mh-before">D’abord, on finit l’étape <b>${hh.icon} ${hh.stageTitle}</b>.</p>` : ''}
-        <p>${hh.text}</p>
-        <p class="hint-small">👉 Appuie sur <b>⏭ Un geste</b>, sous le cube, et fais chaque geste sur ton vrai cube.</p>`, () => {
-        hintBox.hidden = false;
-        hintBox.innerHTML = `<p>${MINE_SAY.hintDone}</p>`;
-      });
+        <p>${hh.text}</p>`;
       say(hh.text);
-    }));
-    const mix = root.querySelector('[data-mine=mix]');
-    if (mix) mix.addEventListener('click', () => enqueue(() => {
-      const m = window.Solver.practice(view.cube, ch.id);
-      if (!m) { note.hidden = false; note.innerHTML = 'Oups, le coach n’a pas trouvé de mélange. Mélange ton cube toi-même et reprends les photos 📸.'; return; }
-      mix.hidden = true;
-      coach({ moves: m, hl: null }, `
-        <h3>🌀 Le coach mélange</h3>
-        <p>${MINE_SAY.mix}</p>
-        <p class="hint-small">👉 Appuie sur <b>⏭ Un geste</b>, sous le cube, et fais chaque geste sur ton vrai cube.</p>`, () => redo());
-      say(MINE_SAY.mix);
-    }));
-    root.querySelector('[data-mine=photos]').addEventListener('click', () => goPhotos(ch));
-  }
-
-  function faceGuideHTML(f) {
-    const top = SHOTS[f].top;
-    return `<div class="face-guide" aria-hidden="true">
-      <span class="fg-top" style="background:${HEX(top)}">${teamOf(top).emoji} en haut</span>
-      <span class="fg-grid">${[0, 1, 2, 3, 4, 5, 6, 7, 8].map((k) => `<i style="${k === 4 ? `background:${HEX(centerOf(f))}` : ''}"></i>`).join('')}</span>
-    </div>`;
+      const target = hh.target;
+      return { moves: hh.moves, hl: target == null ? null : (p) => p.id === target || p.type === 'center' };
+    }
+    if (next) next.addEventListener('click', async () => {
+      if (busy || player.playing) return;
+      busy = true; tools();
+      if (!step || player.idx >= player.moves.length) {
+        step = loadStep();
+        if (!step) { busy = false; tools(); return; }
+        note.hidden = true;
+        player.load({ setup: setupNow(), moves: step.moves, hl: step.hl, view: cfg.view });
+        player.hideControls = true;
+        player.render();
+      }
+      await player.one();
+      busy = false;
+      if (player.idx >= player.moves.length) {
+        const wasMix = step && step.mix;
+        step = null;
+        player.load({ setup: setupNow(), view: cfg.view });
+        updateHold();
+        if (wasMix) { redo(); return; }
+        hintBox.hidden = true;
+      }
+      tools();
+      check();
+    });
+    // Revoir le dernier geste (sans rien changer au cube)
+    again.addEventListener('click', async () => {
+      if (busy || player.playing || moves.length <= base.length) return;
+      busy = true; tools();
+      const last = moves[moves.length - 1];
+      await view.animateMove(L.invert(last), { duration: 200, arrow: false });
+      await wait(250);
+      if (SAY[last]) say(SAY[last][1]);
+      await view.animateMove(last, { preview: 400, duration: 700 });
+      busy = false; tools();
+    });
+    // Oups : on défait le dernier geste, sur l'écran et sur le vrai cube
+    undo.addEventListener('click', async () => {
+      if (busy || player.playing || moves.length <= base.length) return;
+      busy = true; tools();
+      step = null;
+      hintBox.hidden = false;
+      hintBox.innerHTML = '<p>↩️ Fais le geste <b>à l’envers</b> sur ton vrai cube, comme sur l’écran.</p>';
+      player.load({ setup: setupNow(), view: cfg.view });
+      const back = L.invert(moves[moves.length - 1]);
+      if (SAY[back]) say(SAY[back][1]);
+      const ok = await view.animateMove(back, { preview: 400, duration: 700 });
+      if (ok) { moves.pop(); setMyMoves(moves.slice()); }
+      updateHold();
+      busy = false; tools(); check();
+    });
+    const alone = root.querySelector('[data-mine=alone]');
+    if (alone) alone.addEventListener('click', () => { store.checkFor = ch.id; saveStore(); goPhotos(ch, true); });
+    root.querySelector('[data-mine=photos]').addEventListener('click', () => goPhotos(ch, true));
+    tools();
+    if (won) confetti();
   }
 
   function renderMyCube() {
@@ -982,8 +995,6 @@
     app.replaceChildren(page);
     const wrap = page.querySelector('.mc-wrap');
     const fileInput = page.querySelector('#mc-file');
-    let samples = {};
-    let shotIdx = 0;
 
     /* --- accueil de la page --- */
     function home() {
@@ -994,7 +1005,7 @@
           <div class="coach-row">
             <div class="coach-avatar" aria-hidden="true">🐼</div>
             <div class="bubble"><h2>Ton cube dans le stade !</h2>
-              <p>Prends <b>6 photos</b> de ton cube, une pour chaque face. Le coach lit les couleurs, et ton cube apparaît
+              <p>Montre les <b>6 faces</b> de ton cube à la caméra, dans l’ordre et le sens que tu veux. Le coach lit les couleurs, et ton cube apparaît
               dans l’appli, exactement comme dans tes mains : dans les exercices <b>« À toi de jouer »</b> de chaque entraînement,
               et dans le grand guide où le coach résout <b>ton</b> cube avec toi.</p></div>
           </div>
@@ -1007,7 +1018,7 @@
           </div>
           <p class="hint-small">💡 Pour de belles photos : une pièce bien éclairée, sans reflet du plafonnier, le cube bien en face.</p>
         </section>`;
-      wrap.querySelector('[data-act=shots]').addEventListener('click', () => { samples = {}; shotIdx = 0; shot(); });
+      wrap.querySelector('[data-act=shots]').addEventListener('click', startShots);
       const bc = wrap.querySelector('[data-act=back-ch]');
       if (bc) bc.addEventListener('click', () => { store.resumeMine = store.returnTo; saveStore(); });
       wrap.querySelector('[data-act=manual]').addEventListener('click', () => {
@@ -1019,50 +1030,171 @@
       if (ed) ed.addEventListener('click', () => editor(my.grids, null));
     }
 
-    /* --- une photo --- */
-    function shot() {
-      const f = FACE_ORDER[shotIdx];
-      const s = SHOTS[f];
+    /* --- les 6 faces : n'importe laquelle, dans n'importe quel sens --- */
+    let shots = []; // pour chaque photo : 3x3 couleurs [r, g, b]
+    const startShots = () => {
+      shots = [];
+      const canLive = navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.isSecureContext;
+      if (canLive) camera(); else filePhoto();
+    };
+    const facesHTML = () => `<div class="mc-faces">${[0, 1, 2, 3, 4, 5].map((k) => `
+      <span class="mc-face ${shots[k] ? 'done' : k === shots.length ? 'here' : ''}">${shots[k]
+        ? shots[k].flat().map((c) => `<i style="background:rgb(${c.map(Math.round).join(',')})"></i>`).join('')
+        : `<b>${k + 1}</b>`}</span>`).join('')}</div>`;
+    // Même face prise deux fois ? (on compare les 9 cases, dans les 4 sens)
+    const LAB = (smp) => smp.map((row) => row.map((c) => window.Photo.rgbToLab(c)));
+    function sameFace(a, b) {
+      const la = LAB(a);
+      let lb = LAB(b);
+      if (window.Photo.dist(la[1][1], lb[1][1]) > 14) return false;
+      for (let k = 0; k < 4; k++, lb = L.rot90(lb)) {
+        let sum = 0;
+        for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) sum += window.Photo.dist(la[r][c], lb[r][c]);
+        if (sum / 9 < 14) return true;
+      }
+      return false;
+    }
+    // Une face de plus : renvoie un message si elle est refusée
+    function addShot(smp) {
+      const light = smp.flat().reduce((n, c) => n + (c[0] + c[1] + c[2]) / 3, 0) / 9;
+      if (light < 35) return 'Je ne vois pas bien ton cube : mets-toi près d’une lumière, et remplis bien le carré.';
+      if (shots.some((x) => sameFace(x, smp))) return 'Celle-là, tu l’as déjà prise ! Tourne ton cube pour montrer une autre face.';
+      shots.push(smp);
+      return null;
+    }
+    function finishShots() {
+      stopCamera();
+      const res = window.Photo.readShots(shots, L.arrangeFaces, (g) => !myCubeFromGrids(g).errors);
+      if (res.ok) { saveGrids(res.grids, res.options); return; }
+      // un souci de couleur : on montre les 6 photos, les cases douteuses en pointillés
+      const raw = {};
+      const conf = {};
+      res.raw.forEach((g, k) => { raw['s' + k] = g; conf['s' + k] = res.confidence[k]; });
+      editor(raw, conf, true);
+    }
+
+    /* --- la caméra en direct, avec un carré-guide --- */
+    let stream = null;
+    let loop = 0;
+    function stopCamera() {
+      cancelAnimationFrame(loop);
+      if (stream) stream.getTracks().forEach((t) => t.stop());
+      stream = null;
+    }
+    current = { stop: stopCamera };
+    async function camera() {
+      wrap.innerHTML = `
+        <section class="mc-card mc-cam-card">
+          <h2>Montre une face de ton cube 📸</h2>
+          <p>N’importe laquelle, <b>dans n’importe quel sens</b>. Remplis bien le carré avec le cube, puis appuie sur le gros bouton.</p>
+          <div class="cam">
+            <video playsinline muted autoplay></video>
+            <div class="cam-guide"><div class="grid9 live">${'<i></i>'.repeat(9)}</div></div>
+            <div class="cam-msg" hidden></div>
+          </div>
+          <div class="cam-bar">
+            ${facesHTML()}
+            <button class="btn btn-primary cam-snap" data-act="snap" disabled>📸 Clic !</button>
+          </div>
+          <div class="mc-actions">
+            <button class="btn btn-small" data-act="undo-shot" ${shots.length ? '' : 'hidden'}>↩️ Reprendre la dernière</button>
+            <button class="btn btn-small" data-act="file">🖼️ Plutôt avec l’appareil photo</button>
+            <button class="btn btn-small" data-act="back">◀ Retour</button>
+          </div>
+        </section>`;
+      const video = wrap.querySelector('video');
+      const guide = wrap.querySelector('.cam-guide');
+      const cells = wrap.querySelectorAll('.grid9.live i');
+      const msg = wrap.querySelector('.cam-msg');
+      const snap = wrap.querySelector('[data-act=snap]');
+      const canvas = document.createElement('canvas');
+      const say = (t) => { msg.hidden = !t; msg.textContent = t || ''; };
+      wrap.querySelector('[data-act=back]').addEventListener('click', () => { stopCamera(); home(); });
+      wrap.querySelector('[data-act=file]').addEventListener('click', () => { stopCamera(); filePhoto(); });
+      const undoShot = wrap.querySelector('[data-act=undo-shot]');
+      const refresh = () => {
+        wrap.querySelector('.mc-faces').outerHTML = facesHTML();
+        undoShot.hidden = !shots.length;
+      };
+      undoShot.addEventListener('click', () => { shots.pop(); refresh(); say(''); });
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 960 } }, audio: false,
+        });
+      } catch (e) {
+        say('La caméra ne veut pas s’ouvrir. Utilise « Plutôt avec l’appareil photo ».');
+        return;
+      }
+      if (!wrap.contains(video)) { stopCamera(); return; }
+      video.srcObject = stream;
+      await video.play().catch(() => {});
+      // Le carré-guide (à l'écran) -> le même carré dans l'image de la caméra
+      const box = () => {
+        const vw = video.videoWidth, vh = video.videoHeight;
+        const vr = video.getBoundingClientRect(), gr = guide.getBoundingClientRect();
+        const k = Math.max(vr.width / vw, vr.height / vh); // la vidéo remplit le cadre (object-fit: cover)
+        const ox = (vr.width - vw * k) / 2, oy = (vr.height - vh * k) / 2;
+        return { x: (gr.left - vr.left - ox) / k, y: (gr.top - vr.top - oy) / k, size: gr.width / k };
+      };
+      let last = null;
+      let t0 = 0;
+      const tick = (t) => {
+        loop = requestAnimationFrame(tick);
+        if (!video.videoWidth || t - t0 < 180) return;
+        t0 = t;
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        canvas.getContext('2d', { willReadFrequently: true }).drawImage(video, 0, 0);
+        last = window.Photo.sample(canvas, box());
+        last.flat().forEach((c, k) => { cells[k].style.background = `rgba(${c.map(Math.round).join(',')},0.85)`; });
+        snap.disabled = false;
+      };
+      loop = requestAnimationFrame(tick);
+      snap.addEventListener('click', () => {
+        if (!last) return;
+        const refused = addShot(last.map((row) => row.map((c) => c.slice())));
+        if (refused) { say(refused); return; }
+        if (shots.length === 6) { finishShots(); return; }
+        refresh();
+        say(`Super ! Encore ${6 - shots.length}. Tourne ton cube et montre une autre face.`);
+        guide.classList.remove('flash'); void guide.offsetWidth; guide.classList.add('flash');
+        if (store.voice && shots.length === 1) speak('Super ! Tourne ton cube et montre une autre face.');
+      });
+    }
+
+    /* --- secours : une photo de l'appareil, puis on place la grille --- */
+    function filePhoto() {
       wrap.innerHTML = `
         <section class="mc-card">
-          <div class="mc-steps">${FACE_ORDER.map((x, k) => `<span class="mc-step ${k < shotIdx ? 'done' : k === shotIdx ? 'here' : ''}" style="--c:${HEX(centerOf(x))}">${k + 1}</span>`).join('')}</div>
-          <div class="mc-shot-head">
-            ${faceGuideHTML(f)}
-            <div>
-              <h2>Photo ${shotIdx + 1} sur 6 : ${teamOf(centerOf(f)).animal} ${teamOf(centerOf(f)).emoji}</h2>
-              <p>${s.how}</p>
-              <p class="hint-small">Le carré du milieu de la photo doit être <b>${L.COLOR_NAMES[centerOf(f)]}</b>, et le côté ${L.COLOR_NAMES[s.top]} en haut.</p>
-            </div>
-          </div>
+          <h2>Photo ${shots.length + 1} sur 6</h2>
+          <p>Prends en photo une face de ton cube : <b>n’importe laquelle, dans n’importe quel sens</b>, bien en face.</p>
+          ${facesHTML()}
           <div class="mc-shot" hidden>
             <div class="shot-frame"><canvas></canvas><div class="grid9" aria-label="Grille à placer sur le cube">${'<i></i>'.repeat(9)}</div></div>
             <label for="grid-size">Taille de la grille</label>
             <input type="range" id="grid-size" min="20" max="100" value="62">
             <p class="hint-small">👆 Fais glisser la grille pour que chaque case tombe sur une couleur du cube.</p>
-            <div class="swatches">${'<i></i>'.repeat(9)}</div>
           </div>
+          <div class="cam-msg" hidden></div>
           <div class="mc-actions">
             <button class="btn btn-primary" data-act="take">📸 Prendre la photo</button>
             <button class="btn btn-primary" data-act="ok" hidden>✓ C'est bon</button>
-            <button class="btn" data-act="back">${shotIdx ? '◀ Photo d’avant' : '◀ Retour'}</button>
+            <button class="btn" data-act="back">◀ Retour</button>
           </div>
         </section>`;
       const area = wrap.querySelector('.mc-shot');
       const canvas = area.querySelector('canvas');
       const grid = area.querySelector('.grid9');
       const size = area.querySelector('#grid-size');
-      const sw = area.querySelectorAll('.swatches i');
       const take = wrap.querySelector('[data-act=take]');
       const ok = wrap.querySelector('[data-act=ok]');
+      const msg = wrap.querySelector('.cam-msg');
       let box = null;
-
       const place = () => {
         grid.style.left = (box.x / canvas.width) * 100 + '%';
         grid.style.top = (box.y / canvas.height) * 100 + '%';
         grid.style.width = (box.size / canvas.width) * 100 + '%';
         grid.style.height = (box.size / canvas.height) * 100 + '%';
-        const rgb = window.Photo.sample(canvas, box);
-        rgb.flat().forEach((c, k) => { sw[k].style.background = `rgb(${c.map(Math.round).join(',')})`; });
       };
       const clampBox = () => {
         box.size = Math.min(box.size, canvas.width, canvas.height);
@@ -1086,7 +1218,6 @@
       });
       grid.addEventListener('pointerup', () => { drag = null; });
       grid.addEventListener('pointercancel', () => { drag = null; });
-
       take.addEventListener('click', () => { fileInput.value = ''; fileInput.click(); });
       fileInput.onchange = () => {
         const file = fileInput.files && fileInput.files[0];
@@ -1112,41 +1243,40 @@
         img.src = url;
       };
       ok.addEventListener('click', () => {
-        samples[f] = window.Photo.sample(canvas, box);
-        shotIdx++;
-        if (shotIdx < 6) shot();
-        else {
-          const centers = {};
-          FACE_ORDER.forEach((x) => { centers[x] = centerOf(x); });
-          const res = window.Photo.classify(samples, centers);
-          editor(res.grids, res.confidence);
-        }
+        const refused = addShot(window.Photo.sample(canvas, box));
+        if (refused) { msg.hidden = false; msg.textContent = refused; return; }
+        if (shots.length === 6) finishShots(); else filePhoto();
       });
       wrap.querySelector('[data-act=back]').addEventListener('click', () => {
-        if (shotIdx) { shotIdx--; shot(); } else home();
+        if (shots.length) { shots.pop(); filePhoto(); } else home();
       });
     }
 
     /* --- vérifier / corriger les couleurs --- */
-    function editor(grids, confidence) {
+    // raw : les 6 photos telles que prises (s0…s5), dans leur sens ; sinon le patron du cube (U, F, R…)
+    function editor(grids, confidence, raw) {
       grids = JSON.parse(JSON.stringify(grids));
+      confidence = confidence && JSON.parse(JSON.stringify(confidence));
       let paint = 'W';
       let errorCells = new Set();
-      const NET = { U: [0, 1], L: [1, 0], F: [1, 1], R: [1, 2], B: [1, 3], D: [2, 1] };
+      const NET = raw
+        ? { s0: [0, 0], s1: [0, 1], s2: [0, 2], s3: [1, 0], s4: [1, 1], s5: [1, 2] }
+        : { U: [0, 1], L: [1, 0], F: [1, 1], R: [1, 2], B: [1, 3], D: [2, 1] };
+      const KEYS = Object.keys(NET);
       wrap.innerHTML = `
         <section class="mc-card">
-          <h2>Vérifie les couleurs</h2>
-          <p>Compare avec ton vrai cube. Si une case est fausse, choisis la bonne couleur en bas, puis touche la case.
-          ${confidence ? 'Les cases en <b>pointillés</b> sont celles dont le coach n’est pas sûr.' : ''}</p>
-          <div class="net"></div>
+          <h2>${raw ? 'Aide le coach : une couleur est mal lue' : 'Vérifie les couleurs'}</h2>
+          <p>${raw ? 'Voici tes 6 photos. Compare-les avec ton cube : ' : 'Compare avec ton vrai cube. '}si une case est fausse,
+          choisis la bonne couleur en bas, puis touche la case.
+          ${confidence ? 'Regarde surtout les cases en <b>pointillés</b> : le coach n’en est pas sûr.' : ''}</p>
+          <div class="net ${raw ? 'raw' : ''}"></div>
           <div class="palette"></div>
           <div class="mc-errors" hidden></div>
           <div class="mc-actions">
             <button class="btn btn-primary" data-act="check">✓ C'est mon cube !</button>
             <button class="btn" data-act="back">◀ Retour</button>
           </div>
-        </section>
-        <section class="mc-card mc-result" hidden></section>`;
+        </section>`;
       const net = wrap.querySelector('.net');
       const pal = wrap.querySelector('.palette');
       const errBox = wrap.querySelector('.mc-errors');
@@ -1157,13 +1287,13 @@
               const v = grids[f][r][c];
               const doubt = confidence && confidence[f][r][c] < 0.62 && !(r === 1 && c === 1);
               const err = errorCells.has(`${f}${r}${c}`);
-              return `<button class="cell ${v === '?' ? 'empty' : ''} ${doubt ? 'doubt' : ''} ${err ? 'err' : ''} ${r === 1 && c === 1 ? 'center' : ''}"
+              return `<button class="cell ${v === '?' ? 'empty' : ''} ${doubt ? 'doubt' : ''} ${err ? 'err' : ''} ${r === 1 && c === 1 && !raw ? 'center' : ''}"
                 data-cell="${f}${r}${c}" style="${v !== '?' ? `background:${HEX(v)}` : ''}"
                 aria-label="${f} ${r + 1}-${c + 1} : ${L.COLOR_NAMES[v] || 'vide'}">${r === 1 && c === 1 ? teamOf(v).emoji : ''}</button>`;
             }).join('')).join('')}
           </div>`).join('');
         const count = {};
-        for (const f of FACE_ORDER) grids[f].flat().forEach((v) => { count[v] = (count[v] || 0) + 1; });
+        for (const f of KEYS) grids[f].flat().forEach((v) => { count[v] = (count[v] || 0) + 1; });
         pal.innerHTML = ['W', 'Y', 'G', 'B', 'O', 'R'].map((c) => `
           <button class="pal ${paint === c ? 'on' : ''} ${count[c] === 9 ? 'full' : ''}" data-paint="${c}" style="--c:${HEX(c)}">
             <i></i>${L.COLOR_NAMES[c]}<small>${count[c] || 0}/9</small></button>`).join('') +
@@ -1172,7 +1302,8 @@
       net.addEventListener('click', (e) => {
         const b = e.target.closest('[data-cell]');
         if (!b || b.classList.contains('center')) return;
-        const [f, r, c] = [b.dataset.cell[0], +b.dataset.cell[1], +b.dataset.cell[2]];
+        const key = b.dataset.cell;
+        const [f, r, c] = [key.slice(0, -2), +key[key.length - 2], +key[key.length - 1]];
         grids[f][r][c] = paint;
         if (confidence) confidence[f][r][c] = 1;
         errorCells.delete(b.dataset.cell);
@@ -1183,8 +1314,25 @@
         if (b) { paint = b.dataset.paint; drawNet(); }
       });
       drawNet();
-      wrap.querySelector('[data-act=back]').addEventListener('click', home);
+      wrap.querySelector('[data-act=back]').addEventListener('click', raw ? startShots : home);
       wrap.querySelector('[data-act=check]').addEventListener('click', () => {
+        if (raw) {
+          const count = {};
+          for (const f of KEYS) grids[f].flat().forEach((v) => { count[v] = (count[v] || 0) + 1; });
+          const bad = ['W', 'Y', 'G', 'B', 'O', 'R'].filter((c) => count[c] !== 9);
+          const centers = new Set(KEYS.map((f) => grids[f][1][1]));
+          const arr = !bad.length && centers.size === 6 && L.arrangeFaces(KEYS.map((f) => grids[f]));
+          const options = arr ? arr.all.filter((x) => !myCubeFromGrids(x).errors) : [];
+          if (options.length) { saveGrids(options[0], options); return; }
+          errBox.hidden = false;
+          errBox.innerHTML = '<b>Oups, ce n’est pas encore ça :</b><ul>' +
+            (bad.length ? `<li>Chaque couleur doit apparaître 9 fois. Ici : ${bad.map((c) => `${count[c] || 0} ${L.COLOR_NAMES[c]}`).join(', ')}.</li>`
+              : centers.size !== 6 ? '<li>Les 6 cases du milieu doivent être 6 couleurs différentes.</li>'
+                : '<li>Le cube ne tombe pas juste : une case est sûrement mal lue (souvent rouge/orange ou blanc/jaune).</li>') +
+            '</ul>';
+          errBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          return;
+        }
         const res = myCubeFromGrids(grids);
         if (res.errors) {
           errorCells = new Set(res.errors.flatMap((er) => er.cells.map(([f, r, c]) => `${f}${r}${c}`)));
@@ -1195,18 +1343,26 @@
           return;
         }
         errBox.hidden = true;
-        my = { grids, savedAt: Date.now(), moves: [] };
-        saveMy(my);
-        success(res);
+        saveGrids(grids);
       });
     }
 
+    // options : quand les photos laissent 2 possibilités (rare), on peut passer à l'autre
+    function saveGrids(grids, options, k = 0) {
+      my = { grids, savedAt: Date.now(), moves: [] };
+      saveMy(my);
+      success(myCubeFromGrids(grids), options && options.length > 1 ? () => {
+        const n = (k + 1) % options.length;
+        saveGrids(options[n], options, n);
+      } : null);
+    }
+
     /* --- c'est bon ! --- */
-    function success(res) {
+    function success(res, other) {
+      wrap.innerHTML = '<section class="mc-card mc-result"></section>';
       const box = wrap.querySelector('.mc-result');
       const solved = res.solution.alreadySolved;
       const back = CHAPTERS.find((c) => c.id === store.returnTo);
-      box.hidden = false;
       box.innerHTML = `
         <h2>${solved ? 'Ton cube est déjà rangé ! 🏆' : 'Voilà ton cube ! ✨'}</h2>
         <p>${solved ? 'Dans les exercices, le coach peut le mélanger juste ce qu’il faut. Ou mélange-le, puis reprends les photos.' : 'Fais-le tourner avec ton doigt et compare avec ton vrai cube. C’est bien le même ?'}</p>
@@ -1215,17 +1371,26 @@
           ${back ? `<a class="btn btn-primary" href="#${back.id}" data-act="back-ch">▶ Retour à l’entraînement ${back.num}</a>` : ''}
           ${solved ? '' : `<a class="btn ${back ? '' : 'btn-primary'}" href="#moncube-go">🧭 Le coach résout mon cube</a>`}
         </div>
-        ${back ? '' : '<p class="hint-small">💡 Ton cube t’attend aussi dans les exercices « À toi de jouer » de chaque entraînement.</p>'}`;
+        ${back ? '' : '<p class="hint-small">💡 Ton cube t’attend aussi dans les exercices « À toi de jouer » de chaque entraînement.</p>'}
+        <div class="mc-actions">
+          ${other ? '<button class="btn btn-small" data-act="other">🤔 Pas tout à fait pareil ? Voir l’autre version</button>' : ''}
+          <button class="btn btn-small" data-act="fix">✏️ Une couleur est fausse</button>
+          <button class="btn btn-small" data-act="again">📸 Refaire les photos</button>
+        </div>`;
+      box.querySelector('[data-act=fix]').addEventListener('click', () => editor(my.grids, null));
+      if (other) box.querySelector('[data-act=other]').addEventListener('click', other);
+      box.querySelector('[data-act=again]').addEventListener('click', startShots);
       const bc = box.querySelector('[data-act=back-ch]');
       if (bc) bc.addEventListener('click', () => { store.resumeMine = store.returnTo; saveStore(); });
       if (current && current.view) current.view.destroy();
       const view = new window.Cube3D(box.querySelector('.mc-preview'));
       view.reset(res.setup);
-      current = { view };
-      box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      current = { view, stop: stopCamera };
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      if (store.voice) speak(solved ? 'Ton cube est déjà rangé !' : 'Voilà ton cube ! Fais-le tourner avec ton doigt et compare avec ton vrai cube.');
     }
 
-    home();
+    if (store.autoShots) { delete store.autoShots; saveStore(); startShots(); } else home();
   }
 
   function renderMyCubeSolve() {
@@ -1248,7 +1413,7 @@
     const lost = `<div class="mc-lost"><a class="btn btn-small" href="#moncube">📸 Je suis perdue : nouvelles photos</a></div>`;
     add({
       title: 'C’est ton cube !',
-      text: `Voici <b>ton</b> cube, exactement comme dans tes mains. Tiens-le comme sur l’écran : <b>${holdText(cube0)}</b>.<br><br>
+      text: `Voici <b>ton</b> cube, exactement comme dans tes mains. Tiens-le <b>comme sur le dessin</b>, en haut du cube : <b>${holdText(cube0)}</b>.<br><br>
              À chaque écran, regarde le geste, puis fais-le sur ton vrai cube. Utilise ⏭ <b>Un geste</b> pour avancer tout doucement.`,
       speech: 'Voici ton cube, exactement comme dans tes mains. Tiens-le comme sur l’écran. À chaque écran, regarde le geste, puis fais-le sur ton vrai cube.',
       scene: { setup: setupNow(), view: 'normal' },
@@ -1297,7 +1462,7 @@
       finish: true,
     });
     renderChapter({
-      id: 'moncube-go', icon: '🧭', title: 'Mon cube', kicker: 'Le coach résout ton cube avec toi',
+      id: 'moncube-go', icon: '🧭', title: 'Mon cube', kicker: 'Le coach résout ton cube avec toi', showHold: true,
       start,
       // Chaque écran = les gestes d'avant sont faits sur le vrai cube : on garde le cube de l'appli pareil
       onSlide: (i) => setMyMoves(base.concat(doneAt[i]), { baseLen: base.length, slide: i }),

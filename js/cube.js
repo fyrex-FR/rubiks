@@ -254,7 +254,74 @@
     return { cube };
   }
 
+  /* ---------- Photos prises dans n'importe quel ordre et n'importe quel sens ----------
+     shots = [grille 3x3, ...] (6 faces, telles que photographiées). Le centre dit quelle face c'est ;
+     on cherche ensuite le quart de tour de chaque photo pour que toutes les pièces existent.
+     -> { grids, rotations, count } (count = nombre de façons possibles) ou null */
+  const rot90 = (g) => [0, 1, 2].map((r) => [0, 1, 2].map((c) => g[2 - c][r])); // quart de tour horaire
+  const OPP = { W: 'Y', Y: 'W', G: 'B', B: 'G', O: 'R', R: 'O' };
+  let SLOTS = null; // pour chaque pièce : les cases [face, r, c] qui la montrent
+  function slots() {
+    if (SLOTS) return SLOTS;
+    const solved = createSolved();
+    SLOTS = solved.pieces.filter((p) => p.type !== 'center').map((p) => {
+      const cells = [];
+      for (const f of Object.keys(FACE_GRID)) {
+        const g = FACE_GRID[f];
+        if (p.stickers.some((s) => eq3(stickerWorld(p, s), g.n))) cells.push([f, ...g.rc(p.pos)]);
+      }
+      return cells;
+    });
+    return SLOTS;
+  }
+  function arrangeFaces(shots) {
+    const byFace = {};
+    for (const g of shots) {
+      const f = Object.keys(START_COLORS).find((k) => START_COLORS[k] === g[1][1]);
+      if (!f || byFace[f]) return null; // deux photos avec le même centre
+      byFace[f] = [g, rot90(g), rot90(rot90(g)), rot90(rot90(rot90(g)))];
+    }
+    if (Object.keys(byFace).length !== 6) return null;
+    const order = ['U', 'F', 'R', 'B', 'L', 'D'];
+    const pieces = slots();
+    const chosen = {};
+    const found = [];
+    // une pièce dont toutes les faces sont choisies doit avoir des couleurs possibles
+    const ok = () => {
+      const seen = new Set();
+      for (const cells of pieces) {
+        if (!cells.every(([f]) => chosen[f])) continue;
+        const cols = cells.map(([f, r, c]) => chosen[f][r][c]);
+        for (let i = 0; i < cols.length; i++) for (let j = i + 1; j < cols.length; j++) {
+          if (cols[i] === cols[j] || OPP[cols[i]] === cols[j]) return false;
+        }
+        const key = cols.slice().sort().join('');
+        if (seen.has(key)) return false;
+        seen.add(key);
+      }
+      return true;
+    };
+    const rec = (i) => {
+      if (found.length > 4) return;
+      if (i === order.length) {
+        const grids = {};
+        for (const f of order) grids[f] = chosen[f];
+        if (!fromFacelets(grids).errors) found.push(JSON.parse(JSON.stringify(grids)));
+        return;
+      }
+      const f = order[i];
+      for (let k = 0; k < 4; k++) {
+        chosen[f] = byFace[f][k];
+        if (ok()) rec(i + 1);
+      }
+      delete chosen[f];
+    };
+    rec(0);
+    return found.length ? { grids: found[0], all: found, count: found.length } : null;
+  }
+
   const api = {
+    arrangeFaces, rot90,
     START_COLORS, NORMALS, MOVES, COLOR_NAMES, FACE_GRID, createSolved, clone, parse, invert,
     applyMove, apply, piecesInMove, faceGrid, colorFacing, hasColor, stickerWorld,
     centerColor, pieceSolved, pieceAt, isSolved, fromFacelets,
