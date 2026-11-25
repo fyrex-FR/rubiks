@@ -2,7 +2,7 @@
    - Le site (pages, scripts, Three.js, polices) : on prend la version en ligne si possible, sinon celle gardée.
      Les mises à jour arrivent donc toutes seules dès que l'iPad a Internet.
    - Les voix (audio/*.mp3?v=voix) : gardées une fois pour toutes ; toutes sont téléchargées en arrière-plan. */
-const SHELL = 'tournoi-site-v1';
+const SHELL = 'tournoi-site-v2';   // v2: purge les copies périmées gardées par la v1
 const AUDIO = 'tournoi-voix-v1';
 const THREE = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
 const FILES = [
@@ -12,7 +12,7 @@ const FILES = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(SHELL).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(SHELL).then((c) => c.addAll(FILES.map((f) => new Request(f, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', (e) => {
   e.waitUntil(caches.keys()
@@ -45,7 +45,7 @@ self.addEventListener('message', (e) => {
 async function networkFirst(req) {
   const cache = await caches.open(SHELL);
   try {
-    const res = await fetch(req);
+    const res = await fetch(req, { cache: 'no-cache' });   // revalide: ne jamais resservir le cache HTTP du navigateur
     if (res.ok) cache.put(req, res.clone());
     return res;
   } catch (err) {
