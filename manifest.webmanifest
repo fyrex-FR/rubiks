@@ -1,0 +1,17 @@
+{
+  "name": "Le Grand Tournoi du Cube",
+  "short_name": "Tournoi du Cube",
+  "description": "L'école de cube : résoudre le Rubik's Cube avec des histoires de sport et d'animaux.",
+  "lang": "fr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#1d2f57",
+  "theme_color": "#1d2f57",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
